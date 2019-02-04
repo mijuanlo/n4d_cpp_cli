@@ -180,9 +180,15 @@ int main(int argc, char *argv[]) {
 	    }
 	    className = "Golem";
 	}else{
-	    if (authUser == "" or authPwd == "" or n4dHost == "" or methodName == "" or className == ""){
+	    if (authUser == "" or authPwd == "" or methodName == "" or className == ""){
+		cout << "Needed user,password,method,class parameters" << endl;
 		exit(1);
 	    }
+	}
+	if (n4dHost == ""){
+	    n4dHost="https://localhost:9779/RPC2";
+	}else{
+	    n4dHost="https://"+n4dHost+":9779/RPC2";
 	}
 
 	// Parametized options that allow n4dclient work with self-signed certificates
