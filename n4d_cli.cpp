@@ -114,6 +114,8 @@ void phelp(){
     cout << "-c: class name" << endl;
     cout << "-m: method name" << endl;
     cout << "-h: this help" << endl;
+    cout << "-g: get methods call (same as: -H localhost -m get_methods) " << endl;
+    cout << "-z: arguments" << endl;
     exit(0);
 }
 int main(int argc, char *argv[]) {
@@ -125,13 +127,21 @@ int main(int argc, char *argv[]) {
     string methodName = "";
     bool AUTO_EXAMPLE = false;
     bool WITH_AUTH = false;
+    bool is_param = false;
+    vector<string> params;
 
     int i = 0;
     if (argc == 1){
 	phelp();
     }
     while (i < argc){
+	if (is_param and argv[i][0] != '-'){
+	    // include parameter
+	    params.push_back(argv[i++]);
+	    continue;
+	}
 	if (argv[i][0] == '-'){
+	    is_param = false;
 	    switch(argv[i][1]){
 		case 'u':
 		    WITH_AUTH = true;
@@ -161,6 +171,13 @@ int main(int argc, char *argv[]) {
 		case 'h':
 		    phelp();
 		    break;
+		case 'g':
+		    methodName = "get_methods";
+		    n4dHost = "localhost";
+		    break;
+		case 'z':
+		    is_param = true;
+		    break;
 		default:
 		    phelp();
 		    break;
@@ -179,18 +196,15 @@ int main(int argc, char *argv[]) {
 		methodName = "get_teacher_list";
 	    }
 	    className = "Golem";
-	}else{
-	    if (authUser == "" or authPwd == "" or methodName == "" or className == ""){
-		cout << "Needed user,password,method,class parameters" << endl;
-		exit(1);
-	    }
 	}
 	if (n4dHost == ""){
 	    n4dHost="https://localhost:9779/RPC2";
-	}else{
+	}
+	size_t tst = n4dHost.find("http");
+	if (tst  == string::npos ){
 	    n4dHost="https://"+n4dHost+":9779/RPC2";
 	}
-
+	// cout << "Using " << n4dHost << endl;
 	// Parametized options that allow n4dclient work with self-signed certificates
         xmlrpc_c::clientXmlTransport_curl myTransport
           (xmlrpc_c::clientXmlTransport_curl::constrOpt()
@@ -205,9 +219,14 @@ int main(int argc, char *argv[]) {
         // xmlrpc_c::clientSimple myClient;
     
         xmlrpc_c::paramList callParams;
+	// ((user,password)| ) classname? Parameters*
 
 	// If need authentication
 	if (WITH_AUTH){
+	    if (authUser == "" or authPwd == ""){
+		cout << "Need user & password" << endl;
+		exit(1);
+	    }
 	    vector<xmlrpc_c::value> vParams;
 	    vParams.push_back(xmlrpc_c::value_string(authUser));
     	    vParams.push_back(xmlrpc_c::value_string(authPwd));
@@ -216,9 +235,14 @@ int main(int argc, char *argv[]) {
 	}else{ 	// If its anonymous call
 	    callParams.add(xmlrpc_c::value_string(""));
 	}
-	
-	callParams.add(xmlrpc_c::value_string(className));
-
+	if (className != ""){
+	    callParams.add(xmlrpc_c::value_string(className));
+	}
+	if (params.size() != 0){
+	    for (int i=0; i<params.size(); i++){
+		callParams.add(xmlrpc_c::value_string(params[i]));
+	    }
+	}
         xmlrpc_c::rpcPtr myRpcP(methodName, callParams);
         
         xmlrpc_c::carriageParm_curl0 myCarriageParm(n4dHost);
