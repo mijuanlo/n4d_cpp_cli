@@ -1,10 +1,12 @@
 /*
-* g++ -std=c++1z -o n4d_cli n4d_cli.cpp -lxmlrpc++ -lxmlrpc -lxmlrpc_xmlparse -lxmlrpc_xmltok -lxmlrpc_util -lxmlrpc_client++
+* g++ -Wunused -std=c++1z -o n4d_cli n4d_cli.cpp -lxmlrpc++ -lxmlrpc -lxmlrpc_xmlparse -lxmlrpc_xmltok -lxmlrpc_util -lxmlrpc_client++
 */
 
 #include <cstdlib>
 #include <string>
+#include <algorithm>
 #include <iostream>
+#include <ctime>
 #include <xmlrpc-c/girerr.hpp>
 #include <xmlrpc-c/base.hpp>
 #include <xmlrpc-c/client_simple.hpp>
@@ -55,9 +57,9 @@ string toString(xmlrpc_c::value item){
 	    //bool i = static_cast<bool>(xml_bool);
 	    bool i = xml_bool.cvalue();
 	    if (i){
-		c_string = "True";
+            c_string = "True";
 	    }else{
-		c_string = "False";
+            c_string = "False";
 	    }
 	    break;
 	}
@@ -91,7 +93,7 @@ string toString(xmlrpc_c::value item){
 	    map<string,xmlrpc_c::value> c_map = xml_struct.cvalue();
 	    c_string = "{";
 	    for (auto const& [key,val] : c_map){
-		c_string += "'" + key + "':" + toString(val) + ",";
+            c_string += "'" + key + "':" + toString(val) + ",";
 	    }
 	    c_string.pop_back();
 	    c_string += "}";
@@ -103,6 +105,188 @@ string toString(xmlrpc_c::value item){
 	}
     }    
     return c_string;
+}
+
+xmlrpc_c::value parse_simple_param(string param){
+    int pfxpos = param.find_first_of('/');
+    string prefix = param.substr(0,pfxpos);
+    std::transform(prefix.begin(),prefix.end(),prefix.begin(),::tolower);
+    string value = param.substr(pfxpos+1);
+    xmlrpc_c::value r;
+
+    // int, string, long, double, bool, datetime, array, struct
+    bool done = false;
+    if (prefix == "string"){
+        xmlrpc_c::value_string str(value);
+        r = str;
+        done = true;
+    }
+    if (prefix == "int"){
+        int n = atoi(value.data());
+        xmlrpc_c::value_int i(n);
+        r = i;
+        done = true;
+    }
+    if (prefix == "long"){
+        char *pend;
+        long long l = strtoll(value.data(),&pend,10);
+        xmlrpc_c::value_i8 xmlval(l);
+        r = xmlval;
+        done = true;
+    }
+    if (prefix == "double"){
+        double d = atof(value.data());
+        xmlrpc_c::value_double xmlval(d);
+        r = xmlval;
+        done = true;
+    }
+    if (prefix == "bool"){
+        bool b;
+        transform(value.begin(),value.end(),value.begin(),::tolower);
+        if (value == "true"){
+            b = true;
+        }
+        if (value == "false"){
+            b = false;
+        }
+        xmlrpc_c::value_boolean xmlval(b);
+        r = xmlval;
+        done = true;
+    }
+	if (prefix == "datetime"){
+        time_t n = atoi(value.data());
+	    xmlrpc_c::value_datetime xmltime(n);
+        r = xmltime;
+        done = true;
+	}
+    if (!done){
+        cout << "Error parsing simple param: " << param << endl;
+    }
+    return r;
+}
+
+xmlrpc_c::value_struct parse_struct(string param);
+xmlrpc_c::value_array parse_array(string param);
+
+xmlrpc_c::value parse_param(string param){
+    int pfxpos = param.find_first_of('/');
+    string prefix = param.substr(0,pfxpos);
+    std::transform(prefix.begin(),prefix.end(),prefix.begin(),::tolower);
+    string value = param.substr(pfxpos+1);
+    xmlrpc_c::value v;
+
+    if (prefix == "array"){
+        v = parse_array(value);
+    }else if (prefix == "struct"){
+        v = parse_struct(value);
+    }else{
+        v = parse_simple_param(param);
+    }
+    return v;
+}
+
+// {}
+// {string/4:int/2}
+// {string/4:int/2,string/hola que tal:string/jeje}
+
+xmlrpc_c::value_struct parse_struct(string param){
+    size_t ini,mid,mid2,end;
+    ini = param.find('{');
+    mid = param.find(',');
+    end = param.find('}');
+    string tok,key,value;
+    map<string,xmlrpc_c::value> structData;
+    
+    while(ini+1 < end){
+        if (mid == string::npos){
+            tok = param.substr(ini+1,end-ini-1);
+            mid2 = tok.find(':');
+            key = tok.substr(0,mid2);
+            value = tok.substr(mid2+1,tok.size()-mid2);  
+            ini = end;
+        }else{
+            tok = param.substr(ini+1,mid-ini-1);
+            mid2 = tok.find(':');
+            key = tok.substr(0,mid2);
+            value = tok.substr(mid2+1,tok.size()-mid2);
+            ini = mid;
+            mid = param.find(',',ini+1);
+            mid2 = param.find(':',mid2+1);
+        }
+        xmlrpc_c::value_string xmlstr = parse_simple_param(key);
+        xmlrpc_c::value xmlval = parse_param(value);
+        pair<string,xmlrpc_c::value> elem = pair<string,xmlrpc_c::value>(xmlstr.crlfValue(),xmlval);
+        structData.insert(elem);
+    }
+    return xmlrpc_c::value_struct(structData);
+}
+
+// []
+// [string/4]
+// [string/4,int/2,string/hola que tal/string/jeje]
+
+xmlrpc_c::value_array parse_array(string param){
+    size_t ini,mid,end;
+    ini = param.find('[');
+    mid = param.find(',');
+    end = param.find(']');
+    string tok;
+    vector<xmlrpc_c::value> v;
+    
+    while(ini+1 < end){
+        if (mid == string::npos){
+            tok = param.substr(ini+1,end-ini-1);
+            ini = end;
+        }else{
+            tok = param.substr(ini+1,mid-ini-1);
+            ini = mid;
+            mid = param.find(',',ini+1);
+        }
+        v.push_back(parse_param(tok));
+    }
+    return xmlrpc_c::value_array(v);
+}
+string clean_extra_spaces(string s){
+    string r,tok;
+    bool allow = false;
+    int j=0;
+    for (int i=0;i<s.size();i++){
+        if ( i < 6 ){
+            r = r +s[i];
+            j++;
+        }else{
+            tok = r.substr(j-6,6);
+            if (tok == "string"){
+                allow = true;
+            }
+            if (allow){
+                switch(s[i]){
+                    case ']':
+                    case ',':
+                    case '}':
+                        allow = false;
+                    default:
+                        r = r + s[i];
+                        j++;
+                        break;   
+                }
+            }else{
+                if (s[i] != ' '){
+                    r = r + s[i];
+                    j++;
+                }
+            }
+        }    
+    }
+    return r;
+}
+void process_params(xmlrpc_c::paramList &callParams, vector<string> params){
+    xmlrpc_c::value v;
+    for (int i=0; i<params.size(); i++){
+        string p = clean_extra_spaces(params[i]);
+        v = parse_param(p);
+        callParams.add(v);
+    }    
 }
 
 void phelp(){
@@ -132,7 +316,7 @@ int main(int argc, char *argv[]) {
 
     int i = 0;
     if (argc == 1){
-	phelp();
+        phelp();
     }
     while (i < argc){
 	if (is_param and argv[i][0] != '-'){
@@ -224,12 +408,12 @@ int main(int argc, char *argv[]) {
 	// If need authentication
 	if (WITH_AUTH){
 	    if (authUser == "" or authPwd == ""){
-		cout << "Need user & password" << endl;
-		exit(1);
+            cout << "Need user & password" << endl;
+            exit(1);
 	    }
 	    vector<xmlrpc_c::value> vParams;
 	    vParams.push_back(xmlrpc_c::value_string(authUser));
-    	    vParams.push_back(xmlrpc_c::value_string(authPwd));
+    	vParams.push_back(xmlrpc_c::value_string(authPwd));
 	    xmlrpc_c::value_array aParams(vParams);
 	    callParams.add(aParams);
 	}else{ 	// If its anonymous call
@@ -239,28 +423,26 @@ int main(int argc, char *argv[]) {
 	    callParams.add(xmlrpc_c::value_string(className));
 	}
 	if (params.size() != 0){
-	    for (int i=0; i<params.size(); i++){
-		callParams.add(xmlrpc_c::value_string(params[i]));
-	    }
+	    process_params(callParams,params);
 	}
-        xmlrpc_c::rpcPtr myRpcP(methodName, callParams);
-        
-        xmlrpc_c::carriageParm_curl0 myCarriageParm(n4dHost);
-        
-        myRpcP->call(&myClient,&myCarriageParm);
+    xmlrpc_c::rpcPtr myRpcP(methodName, callParams);
+    
+    xmlrpc_c::carriageParm_curl0 myCarriageParm(n4dHost);
+    
+    myRpcP->call(&myClient,&myCarriageParm);
         
 	xmlrpc_c::value returned = myRpcP->getResult();
 	
 	// Example return if a simple call is used
-        // string const res(xmlrpc_c::value_array(myRpcP->getResult()));
+    // string const res(xmlrpc_c::value_array(myRpcP->getResult()));
 
 	cout << toString(returned) << endl;
 	
 	// Example simple call with two params
-        //myClient.call(serverUrl, methodName, "ii", &result, 5, 7);
-        
-        //string const res = xmlrpc_c::value_string(result);
-        // Assume the method returned an integer; throws error if not
+    //myClient.call(serverUrl, methodName, "ii", &result, 5, 7);
+    
+    //string const res = xmlrpc_c::value_string(result);
+    // Assume the method returned an integer; throws error if not
 
 
     } catch (exception const& e) {
