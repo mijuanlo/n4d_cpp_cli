@@ -15,6 +15,7 @@ using namespace std;
 
 string toString(xmlrpc_c::value item, bool exporting=false){
     string c_string = "";
+
     switch(item.type()){
         case xmlrpc_c::value::TYPE_STRING:{
             xmlrpc_c::value_string xml_string = xmlrpc_c::value_string(item);
@@ -105,12 +106,14 @@ string toString(xmlrpc_c::value item, bool exporting=false){
             vector<xmlrpc_c::value> c_vector = xml_array.vectorValueValue();
             c_string = "[";
             if (exporting){
-                c_string = "array/" +c_string;
+                c_string = "array/" + c_string;
             }
-            for (auto const& i : c_vector){
+            if (c_vector.size() != 0){
+                for (auto const& i : c_vector){
                     c_string += toString(i,exporting) + ",";
+                }
+                c_string.pop_back();
             }
-            c_string.pop_back();
             c_string += "]";
             break;
         }
@@ -122,14 +125,16 @@ string toString(xmlrpc_c::value item, bool exporting=false){
                 c_string = "struct/" +c_string;
             }
             c_string = "{";
-            for (auto const& [key,val] : c_map){
-                if (exporting){
-                    c_string += "string/" + key + ":" + toString(val,exporting) + ",";
-                }else{
-                    c_string += "'" + key + "':" + toString(val,exporting) + ",";
+            if (c_map.size() != 0){
+                for (auto const& [key,val] : c_map){
+                    if (exporting){
+                        c_string += "string/" + key + ":" + toString(val,exporting) + ",";
+                    }else{
+                        c_string += "'" + key + "':" + toString(val,exporting) + ",";
+                    }
                 }
+                c_string.pop_back();
             }
-            c_string.pop_back();
             c_string += "}";
             break;
         }
@@ -187,12 +192,12 @@ xmlrpc_c::value parse_simple_param(string param){
         r = xmlval;
         done = true;
     }
-	if (prefix == "datetime"){
+    if (prefix == "datetime"){
         time_t n = atoi(value.data());
-	    xmlrpc_c::value_datetime xmltime(n);
+        xmlrpc_c::value_datetime xmltime(n);
         r = xmltime;
         done = true;
-	}
+    }
     if (!done){
         cout << "Error parsing simple param: " << param << endl;
     }
@@ -230,13 +235,13 @@ xmlrpc_c::value_struct parse_struct(string param){
     end = param.find('}');
     string tok,key,value;
     map<string,xmlrpc_c::value> structData;
-    
+
     while(ini+1 < end){
         if (mid == string::npos){
             tok = param.substr(ini+1,end-ini-1);
             mid2 = tok.find(':');
             key = tok.substr(0,mid2);
-            value = tok.substr(mid2+1,tok.size()-mid2);  
+            value = tok.substr(mid2+1,tok.size()-mid2);
             ini = end;
         }else{
             tok = param.substr(ini+1,mid-ini-1);
@@ -266,7 +271,7 @@ xmlrpc_c::value_array parse_array(string param){
     end = param.find(']');
     string tok;
     vector<xmlrpc_c::value> v;
-    
+
     while(ini+1 < end){
         if (mid == string::npos){
             tok = param.substr(ini+1,end-ini-1);
@@ -285,7 +290,7 @@ string clean_extra_spaces(string s){
     string r,tok;
     bool allow = false;
     int j=0;
-    for (int i=0;i<s.size();i++){
+    for (unsigned int i=0;i<s.size();i++){
         if ( i < 6 ){
             r = r +s[i];
             j++;
@@ -300,10 +305,11 @@ string clean_extra_spaces(string s){
                     case ',':
                     case '}':
                         allow = false;
+                        [[fallthrough]];
                     default:
                         r = r + s[i];
                         j++;
-                        break;   
+                        break;
                 }
             }else{
                 if (s[i] != ' '){
@@ -311,7 +317,7 @@ string clean_extra_spaces(string s){
                     j++;
                 }
             }
-        }    
+        }
     }
     return r;
 }
